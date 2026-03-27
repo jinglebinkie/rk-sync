@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rk-sync.fullname" . }}
+  labels:
+    {{- include "rk-sync.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "rk-sync.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rk-sync.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: DRIVE_FOLDER_ID
+              value: {{ .Values.config.driveFolderId | quote }}
+            - name: POLL_INTERVAL
+              value: {{ .Values.config.pollInterval | quote }}
+            - name: RUNKEEPER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: RUNKEEPER_EMAIL
+            - name: RUNKEEPER_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: RUNKEEPER_PASS
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: secrets
+              mountPath: /app/secrets/token.json
+              subPath: token.json
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "rk-sync.fullname" . }}-pvc
+        - name: secrets
+          secret:
+            secretName: {{ .Values.auth.existingSecret }}

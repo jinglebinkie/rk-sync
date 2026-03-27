@@ -1,0 +1,20 @@
+# Default values for rk-sync.
+# This configures the sync worker and expected secrets.
+
+replicaCount: 1
+
+image:
+  repository: moppie/rk-sync
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+persistence:
+  size: 1Gi
+  storageClass: "nfs-client"
+
+auth:
+  existingSecret: "rk-sync-secrets"
+
+config:
+  driveFolderId: ""
+  pollInterval: "600" # 10 mins in seconds
