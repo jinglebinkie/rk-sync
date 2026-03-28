@@ -41,15 +41,38 @@ def get_drive_service():
 def upload_to_runkeeper(file_path):
     with sync_playwright() as p:
         # Launch browser (headless by default)
-        browser = p.chromium.launch()
-        context = browser.new_context()
+        # Firefox bypasses the ASICS WAF much better than Chromium
+        browser = p.firefox.launch()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
 
         print(f"🤖 Attempting login for {RK_USER}...")
-        page.goto("https://runkeeper.com/login")
-        page.fill('input[name="email"]', RK_USER)
-        page.fill('input[name="password"]', RK_PASS)
-        page.click('button[type="submit"]')
+        page.goto("https://runkeeper.com/login", wait_until="networkidle")
+        
+        # Handle the ASICS OneTrust Cookie Banner if it appears
+        try:
+            cookie_btn = page.locator("button:has-text('Accept All Cookies')")
+            cookie_btn.click(timeout=5000)
+            print("🍪 Accepted cookies.")
+        except Exception:
+            pass
+            
+        page.wait_for_selector('input[type="email"]', timeout=15000)
+        page.fill('input[type="email"]', RK_USER)
+        
+        # ASICS OneID often requires clicking "Continue" before password appears
+        try:
+            # Check if password is on the same page
+            page.fill('input[type="password"]', RK_PASS, timeout=3000)
+            page.locator('button[type="submit"]').click()
+        except:
+            # Otherwise click "Continue" first
+            page.locator('button:has-text("Continue"), button:has-text("Next")').first.click()
+            page.wait_for_selector('input[type="password"]', timeout=10000)
+            page.fill('input[type="password"]', RK_PASS)
+            page.locator('button[type="submit"]').click()
         
         # Wait for the dashboard or a known logged-in element
         page.wait_for_selector('.nav-item-user', timeout=15000)

@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir \
 COPY sync_worker.py .
 
 # Playwright requires a one-time install of the browser binary
-RUN playwright install chromium
+RUN playwright install firefox chromium
 
 # Create data dir for SQLite persistence
 RUN mkdir /data && chmod 777 /data
