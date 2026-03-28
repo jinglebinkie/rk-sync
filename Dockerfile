@@ -16,4 +16,4 @@ RUN playwright install chromium
 # Create data dir for SQLite persistence
 RUN mkdir /data && chmod 777 /data
 
-CMD ["python", "sync_worker.py"]
+CMD ["python", "-u", "sync_worker.py"]

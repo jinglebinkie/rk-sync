@@ -19,6 +19,8 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: DRIVE_FOLDER_ID
               value: {{ .Values.config.driveFolderId | quote }}
             - name: POLL_INTERVAL
