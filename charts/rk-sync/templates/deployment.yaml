@@ -42,6 +42,10 @@ spec:
               mountPath: /app/secrets/token.json
               subPath: token.json
               readOnly: true
+            - name: secrets
+              mountPath: /app/secrets/rk_cookies.json
+              subPath: rk_cookies.json
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
