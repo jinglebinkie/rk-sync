@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "rk-sync.fullname" . }}
+  name: {{ include "rk-sync-helm.fullname" . }}
   labels:
-    {{- include "rk-sync.labels" . | nindent 4 }}
+    {{- include "rk-sync-helm.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "rk-sync.selectorLabels" . | nindent 6 }}
+      {{- include "rk-sync-helm.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "rk-sync.selectorLabels" . | nindent 8 }}
+        {{- include "rk-sync-helm.selectorLabels" . | nindent 8 }}
     spec:
       containers:
         - name: {{ .Chart.Name }}
@@ -43,7 +43,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "rk-sync.fullname" . }}-pvc
+            claimName: {{ include "rk-sync-helm.fullname" . }}-pvc
         - name: secrets
           secret:
             secretName: {{ .Values.auth.existingSecret }}
