@@ -54,11 +54,44 @@ def upload_to_runkeeper(file_path):
             
         with open(cookie_path, 'r') as f:
             cookies = json.load(f)
-            # EditThisCookie might not include 'domain', but Playwright needs it if it's missing
+            
+            normalized_cookies = []
             for c in cookies:
-                if 'sameSite' in c and c['sameSite'] == 'no_restriction':
-                    c['sameSite'] = 'None' # Fix for some cookie export extensions
-            context.add_cookies(cookies)
+                # If it's already perfectly formatted (e.g. from EditThisCookie), just add it
+                if "name" in c and "value" in c:
+                    if 'sameSite' in c and c['sameSite'] == 'no_restriction':
+                        c['sameSite'] = 'None'
+                    normalized_cookies.append(c)
+                    continue
+                
+                # If it's from the other tool using 'Name raw', 'Content raw', etc
+                if "Name raw" in c and "Content raw" in c:
+                    host = c.get("Host raw", "").replace("https://", "").replace("http://", "").rstrip("/")
+                    nc = {
+                        "name": c["Name raw"],
+                        "value": c["Content raw"],
+                        "domain": host,
+                        "path": c.get("Path raw", "/"),
+                        "secure": str(c.get("Send for raw", "false")).lower() == "true",
+                        "httpOnly": str(c.get("HTTP only raw", "false")).lower() == "true",
+                    }
+                    
+                    expires_raw = c.get("Expires raw")
+                    if expires_raw:
+                        try:
+                            nc["expires"] = float(expires_raw)
+                        except:
+                            pass
+                            
+                    samesite = str(c.get("SameSite raw", "")).lower()
+                    if samesite == "no_restriction":
+                        nc["sameSite"] = "None"
+                    elif samesite in ["strict", "lax", "none"]:
+                        nc["sameSite"] = samesite.capitalize()
+                        
+                    normalized_cookies.append(nc)
+
+            context.add_cookies(normalized_cookies)
             
         page = context.new_page()
 
