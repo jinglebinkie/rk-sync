@@ -67,6 +67,10 @@ def upload_to_runkeeper(file_path):
                 # If it's from the other tool using 'Name raw', 'Content raw', etc
                 if "Name raw" in c and "Content raw" in c:
                     host = c.get("Host raw", "").replace("https://", "").replace("http://", "").rstrip("/")
+                    # Playwright often prefers the . prefix for domains to include subdomains
+                    if host and not host.startswith("."):
+                        host = "." + host.lstrip(".")
+                        
                     nc = {
                         "name": c["Name raw"],
                         "value": c["Content raw"],
@@ -98,11 +102,15 @@ def upload_to_runkeeper(file_path):
         print(f"🤖 Bypassing Login with Cookie...")
         
         # Go straight to the import dashboard!
-        page.goto("https://runkeeper.com/importActivities")
+        page.goto("https://runkeeper.com/importActivities", wait_until="networkidle")
+        print(f"📍 Landed on: {page.url}")
+        
         try:
-            page.wait_for_selector('input[type="file"]', timeout=15000)
+            page.wait_for_selector('input[type="file"]', timeout=20000)
         except Exception:
-            raise Exception("❌ Dead Cookie! The session cookie expired or was invalid. Please export a fresh one.")
+            if "id.asics.com" in page.url or "login" in page.url:
+                raise Exception("❌ Dead Cookie! Logged out or redirected to login. Please export a fresh session.")
+            raise Exception(f"❌ Timed out waiting for upload selector. URL: {page.url}")
 
         print(f"📂 Uploading {file_path}...")
         # Navigate to the bulk import page (faster than the '+' button wizard)
