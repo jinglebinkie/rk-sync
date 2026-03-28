@@ -46,36 +46,30 @@ def upload_to_runkeeper(file_path):
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
+        
+        # Load cookies
+        cookie_path = '/app/secrets/rk_cookies.json'
+        if not os.path.exists(cookie_path):
+            raise Exception(f"❌ Missing {cookie_path}! Did you seal the cookie secret?")
+            
+        with open(cookie_path, 'r') as f:
+            cookies = json.load(f)
+            # EditThisCookie might not include 'domain', but Playwright needs it if it's missing
+            for c in cookies:
+                if 'sameSite' in c and c['sameSite'] == 'no_restriction':
+                    c['sameSite'] = 'None' # Fix for some cookie export extensions
+            context.add_cookies(cookies)
+            
         page = context.new_page()
 
-        print(f"🤖 Attempting login for {RK_USER}...")
-        page.goto("https://runkeeper.com/login", wait_until="networkidle")
+        print(f"🤖 Bypassing Login with Cookie...")
         
-        # Handle the ASICS OneTrust Cookie Banner if it appears
+        # Go straight to the import dashboard!
+        page.goto("https://runkeeper.com/importActivities")
         try:
-            cookie_btn = page.locator("button:has-text('Accept All Cookies')")
-            cookie_btn.click(timeout=5000)
-            print("🍪 Accepted cookies.")
+            page.wait_for_selector('input[type="file"]', timeout=15000)
         except Exception:
-            pass
-            
-        page.wait_for_selector('input[type="email"]', timeout=15000)
-        page.fill('input[type="email"]', RK_USER)
-        
-        # ASICS OneID often requires clicking "Continue" before password appears
-        try:
-            # Check if password is on the same page
-            page.fill('input[type="password"]', RK_PASS, timeout=3000)
-            page.locator('button[type="submit"]').click()
-        except:
-            # Otherwise click "Continue" first
-            page.locator('button:has-text("Continue"), button:has-text("Next")').first.click()
-            page.wait_for_selector('input[type="password"]', timeout=10000)
-            page.fill('input[type="password"]', RK_PASS)
-            page.locator('button[type="submit"]').click()
-        
-        # Wait for the dashboard or a known logged-in element
-        page.wait_for_selector('.nav-item-user', timeout=15000)
+            raise Exception("❌ Dead Cookie! The session cookie expired or was invalid. Please export a fresh one.")
 
         print(f"📂 Uploading {file_path}...")
         # Navigate to the bulk import page (faster than the '+' button wizard)
