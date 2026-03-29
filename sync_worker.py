@@ -113,14 +113,30 @@ def upload_to_runkeeper(file_path):
             raise Exception(f"❌ Timed out waiting for upload selector. URL: {page.url}")
 
         print(f"📂 Uploading {file_path}...")
-        # Navigate to the bulk import page (faster than the '+' button wizard)
-        page.goto("https://runkeeper.com/importActivities")
         
-        # Select the file
-        page.set_input_files('input[type="file"]', file_path)
+        # Select the file by clicking the "Get started" button and then handling the file chooser
+        try:
+            with page.expect_file_chooser() as fc_info:
+                page.click('button#multiFilesUpload')
+            file_chooser = fc_info.value
+            file_chooser.set_files(file_path)
+            print("📤 File selected via chooser.")
+        except Exception as e:
+            # Fallback to the direct hidden input if the button click wasn't necessary or didn't work
+            print(f"⚠️ File chooser failed ({e}), trying direct input...")
+            page.set_input_files('input[type="file"]', file_path)
         
+        # Wait for "Next" or "Done" button. After selection, Runkeeper usually processes and then shows a "Next" button.
+        try:
+            # New Runkeeper UI often has a "Next" button after selection
+            page.wait_for_selector('button:has-text("Next")', timeout=15000)
+            page.click('button:has-text("Next")')
+            print("⏭️ Clicked Next.")
+        except Exception:
+            pass # Maybe it went straight to Done
+            
         # Click "Done" or "Save" based on the 2026 UI layout
-        page.wait_for_selector('button:has-text("Done")', timeout=10000)
+        page.wait_for_selector('button:has-text("Done")', timeout=15000)
         page.click('button:has-text("Done")')
         
         print(f"✅ Upload successful.")
