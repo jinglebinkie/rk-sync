@@ -106,11 +106,13 @@ def upload_to_runkeeper(file_path):
         print(f"📍 Landed on: {page.url}")
         
         try:
-            page.wait_for_selector('input[type="file"]', timeout=20000)
+            # Look for the "Get started" button with ID multiFilesUpload
+            page.wait_for_selector('button#multiFilesUpload', timeout=20000)
+            print("✨ Upload selector (Get started) found!")
         except Exception:
             if "id.asics.com" in page.url or "login" in page.url:
                 raise Exception("❌ Dead Cookie! Logged out or redirected to login. Please export a fresh session.")
-            raise Exception(f"❌ Timed out waiting for upload selector. URL: {page.url}")
+            raise Exception(f"❌ Timed out waiting for upload button (#multiFilesUpload). URL: {page.url}")
 
         print(f"📂 Uploading {file_path}...")
         
