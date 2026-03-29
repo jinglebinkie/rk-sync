@@ -105,14 +105,15 @@ def upload_to_runkeeper(file_path):
             print("✨ Session verified! Successfully bypassed login.")
             
         # 2. Go to the actual upload page
-        page.goto("https://runkeeper.com/importActivities", wait_until="networkidle")
+        # The user confirmed the "Get started" button is on /new/activity
+        page.goto("https://runkeeper.com/new/activity", wait_until="networkidle")
         print(f"📍 Landed on: {page.url}")
         
         if "agony of de feet" in page.content().lower() or "oh noes" in page.title().lower() or "404" in page.title().lower():
-             print("⚠️ 404 Detect on current URL. Trying /dashboard as fallback...")
-             page.goto("https://runkeeper.com/dashboard")
+             print("⚠️ 404 Detected on /new/activity. Trying /importActivities as fallback...")
+             page.goto("https://runkeeper.com/importActivities")
              if "agony of de feet" in page.content().lower():
-                raise Exception(f"❌ 404 Error! Runkeeper doesn't see your session on /importActivities OR /dashboard. URL: {page.url}")
+                raise Exception(f"❌ 404 Error! Runkeeper doesn't see your session on /new/activity OR /importActivities. URL: {page.url}")
 
         try:
             # Look for the "Get started" button with ID multiFilesUpload
