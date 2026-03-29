@@ -57,29 +57,35 @@ def upload_to_runkeeper(file_path):
             
             normalized_cookies = []
             for c in cookies:
-                # If it's already perfectly formatted (e.g. from EditThisCookie), just add it
+                # 1. Standard Playwright format (name/value)
                 if "name" in c and "value" in c:
-                    if 'sameSite' in c and c['sameSite'] == 'no_restriction':
+                    if 'sameSite' in c and (c['sameSite'] == 'no_restriction' or c['sameSite'] == 'None'):
                         c['sameSite'] = 'None'
                     normalized_cookies.append(c)
                     continue
                 
-                # If it's from the other tool using 'Name raw', 'Content raw', etc
+                # 2. "Name raw" / "Content raw" format from User's export tool
                 if "Name raw" in c and "Content raw" in c:
-                    host = c.get("Host raw", "").replace("https://", "").replace("http://", "").rstrip("/")
-                    # Playwright often prefers the . prefix for domains to include subdomains
+                    # Strip protocol and path from domain field
+                    host = str(c.get("Host raw", "runkeeper.com")).replace("https://", "").replace("http://", "").split("/")[0]
+                    # Playwright expects domains to lead with . for cross-subdomain usage
                     if host and not host.startswith("."):
-                        host = "." + host.lstrip(".")
+                        host = "." + host
                         
                     nc = {
-                        "name": c["Name raw"],
-                        "value": c["Content raw"],
+                        "name": str(c["Name raw"]),
+                        "value": str(c["Content raw"]),
                         "domain": host,
                         "path": c.get("Path raw", "/"),
-                        "secure": str(c.get("Send for raw", "false")).lower() == "true",
-                        "httpOnly": str(c.get("HTTP only raw", "false")).lower() == "true",
                     }
                     
+                    # Optional: handle secure/httpOnly flags if present
+                    if "Send for raw" in c:
+                        nc["secure"] = str(c["Send for raw"]).lower() == "true"
+                    if "HTTP only raw" in c:
+                        nc["httpOnly"] = str(c["HTTP only raw"]).lower() == "true"
+                    
+                    # Optional: handle expires
                     expires_raw = c.get("Expires raw")
                     if expires_raw:
                         try:
@@ -87,32 +93,47 @@ def upload_to_runkeeper(file_path):
                         except:
                             pass
                             
+                    # Optional: handle sameSite
                     samesite = str(c.get("SameSite raw", "")).lower()
-                    if samesite == "no_restriction":
+                    if samesite in ["no_restriction", "none"]:
                         nc["sameSite"] = "None"
-                    elif samesite in ["strict", "lax", "none"]:
+                    elif samesite in ["strict", "lax"]:
                         nc["sameSite"] = samesite.capitalize()
                         
                     normalized_cookies.append(nc)
 
+            print(f"🍪 Injecting {len(normalized_cookies)} cookies for Runkeeper/ASICS...")
             context.add_cookies(normalized_cookies)
             
         page = context.new_page()
 
-        print(f"🤖 Bypassing Login with Cookie...")
+        print(f"🤖 Warming up Bypassing Login with Cookie...")
         
-        # Go straight to the import dashboard!
+        # 1. Visit the home page first (this "warms up" the session and checks if we're logged in)
+        page.goto("https://runkeeper.com/home", wait_until="networkidle")
+        home_text = page.text_content("body").lower()
+        
+        if "log in" in home_text and "sign up" in home_text:
+            # Let's check the URL. If it redirected to id.asics.com, we are definitely logged out.
+            if "id.asics.com" in page.url:
+                raise Exception("❌ Dead Cookie! Session expired on ASICS. Please export a fresh session (All Domains).")
+            print("⚠️ Session looks weak (landing page shows Login), but trying upload anyway...")
+        else:
+            print("✨ Session verified! Successfully bypassed login.")
+            
+        # 2. Go to the actual upload page
         page.goto("https://runkeeper.com/importActivities", wait_until="networkidle")
         print(f"📍 Landed on: {page.url}")
         
+        if "agony of de feet" in page.content().lower():
+             raise Exception("❌ 404 Error! Runkeeper doesn't see your session. Make sure you exported ASICS cookies too!")
+
         try:
             # Look for the "Get started" button with ID multiFilesUpload
             page.wait_for_selector('button#multiFilesUpload', timeout=20000)
-            print("✨ Upload selector (Get started) found!")
+            print("✨ Found Upload Button!")
         except Exception:
-            if "id.asics.com" in page.url or "login" in page.url:
-                raise Exception("❌ Dead Cookie! Logged out or redirected to login. Please export a fresh session.")
-            raise Exception(f"❌ Timed out waiting for upload button (#multiFilesUpload). URL: {page.url}")
+            raise Exception(f"❌ Timed out waiting for upload button. URL: {page.url}")
 
         print(f"📂 Uploading {file_path}...")
         
