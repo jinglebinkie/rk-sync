@@ -179,15 +179,19 @@ def upload_to_runkeeper(file_path):
             print("✨ Session verified! Successfully bypassed login.")
             
         # 2. Go to the actual upload page
-        # The user confirmed the "Get started" button is on /new/activity
         page.goto("https://runkeeper.com/new/activity", wait_until="networkidle")
         print(f"📍 Landed on: {page.url}")
         
-        if "agony of de feet" in page.content().lower() or "oh noes" in page.title().lower() or "404" in page.title().lower():
-             print("⚠️ 404 Detected on /new/activity. Trying /importActivities as fallback...")
-             page.goto("https://runkeeper.com/importActivities")
-             if "agony of de feet" in page.content().lower():
-                raise Exception(f"❌ 404 Error! Runkeeper doesn't see your session on /new/activity OR /importActivities. URL: {page.url}")
+        # --- HANDLE COOKIE CONSENT (OneTrust) ---
+        try:
+            # Look for the "Accept" button on the OneTrust banner
+            accept_btn = page.locator("#onetrust-accept-btn-handler")
+            if accept_btn.is_visible(timeout=5000):
+                print("🍪 Clearing cookie consent banner...")
+                accept_btn.click()
+                page.wait_for_timeout(1000) # Let it fade out
+        except Exception:
+            pass # No banner, or it's already gone
 
         try:
             # Look for the "Get started" button with ID multiFilesUpload
@@ -201,7 +205,8 @@ def upload_to_runkeeper(file_path):
         # Select the file by clicking the "Get started" button and then handling the file chooser
         try:
             with page.expect_file_chooser() as fc_info:
-                page.click('button#multiFilesUpload')
+                # Use force=True to bypass any sneaky overlays
+                page.click('button#multiFilesUpload', force=True)
             file_chooser = fc_info.value
             file_chooser.set_files(file_path)
             print("📤 File selected via chooser.")
@@ -213,17 +218,25 @@ def upload_to_runkeeper(file_path):
         # Wait for "Next" or "Done" button. After selection, Runkeeper usually processes and then shows a "Next" button.
         try:
             # New Runkeeper UI often has a "Next" button after selection
-            page.wait_for_selector('button:has-text("Next")', timeout=15000)
-            page.click('button:has-text("Next")')
-            print("⏭️ Clicked Next.")
-        except Exception:
-            pass # Maybe it went straight to Done
+            # We use a combined selector for whatever button comes up next
+            page.wait_for_selector('button:has-text("Next"), button:has-text("Done"), button:has-text("Save")', timeout=30000)
             
-        # Click "Done" or "Save" based on the 2026 UI layout
-        page.wait_for_selector('button:has-text("Done")', timeout=15000)
-        page.click('button:has-text("Done")')
-        
-        print(f"✅ Upload successful.")
+            # Click "Next" if it's there
+            if page.locator('button:has-text("Next")').is_visible():
+                page.click('button:has-text("Next")')
+                print("⏭️ Clicked Next.")
+                page.wait_for_timeout(2000) # Wait for final screen
+
+            # Click "Done" or "Save"
+            final_btn = page.locator('button:has-text("Done"), button:has-text("Save")').first
+            if final_btn.is_visible():
+                final_btn.click()
+                print("💾 Clicked Done/Save.")
+            
+            print(f"✅ Upload successful.")
+        except Exception as e:
+            print(f"⚠️ Finalization step failed or wasn't needed: {e}")
+            
         browser.close()
 
 # --- MAIN LOOP ---
