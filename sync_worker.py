@@ -23,7 +23,7 @@ NS_NAME = "jinglebinkie"
 # --- DATABASE LOGIC (SurrealDB + SQLite Migration) ---
 def connect_surreal():
     db = Surreal(SURREAL_URL)
-    db.connect()
+    # The new SDK handles connection automatically or doesn't use .connect()
     db.signin({"user": SURREAL_USER, "pass": SURREAL_PASS})
     db.use(NS_NAME, DB_NAME)
     return db
