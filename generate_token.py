@@ -3,8 +3,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-# We only need read-only access to Drive
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+# We need full access to create folders and move files
+SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def main():
     creds = None

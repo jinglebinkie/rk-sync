@@ -32,11 +32,20 @@ def migrate_old_db(sdb):
             rows = cur.fetchall()
             for row in rows:
                 file_id = row[0]
-                # Check if it exists in Surreal
-                res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
-                if not res or not res[0]["result"]:
-                    sdb.create("uploads", {"file_id": file_id, "migrated": True, "ts": time.time()})
-                    print(f"📦 Migrated {file_id}")
+                # Check if it exists in Surreal defensively
+                try:
+                    res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
+                    exists = False
+                    if isinstance(res, list) and len(res) > 0 and isinstance(res[0], dict):
+                        exists = bool(res[0].get("result"))
+                    elif isinstance(res, list):
+                        exists = len(res) > 0
+                    
+                    if not exists:
+                        sdb.create("uploads", {"file_id": file_id, "migrated": True, "ts": time.time()})
+                        print(f"📦 Migrated {file_id}")
+                except Exception as e:
+                    print(f"⚠️ Error checking record {file_id}: {e}")
             print(f"✅ Migration complete. {len(rows)} records processed.")
         except Exception as e:
             print(f"⚠️ Migration warning: {e}")
@@ -44,8 +53,18 @@ def migrate_old_db(sdb):
             conn.close()
 
 def is_uploaded(sdb, file_id):
-    res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
-    return bool(res and res[0]["result"])
+    try:
+        res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
+        if isinstance(res, list) and len(res) > 0 and isinstance(res[0], dict):
+            # Version 1.x structure: [{'result': [...], 'status': 'OK'}]
+            return bool(res[0].get("result"))
+        elif isinstance(res, list):
+            # Fallback for simpler list-of-records format
+            return len(res) > 0
+        return False
+    except Exception as e:
+        print(f"⚠️ is_uploaded check failed: {e}")
+        return False
 
 def mark_as_uploaded(sdb, file_id, filename):
     sdb.create("uploads", {
