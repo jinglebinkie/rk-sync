@@ -215,7 +215,7 @@ def main():
     try:
         with Surreal(SURREAL_URL) as sdb:
             print("🚀 SurrealDB Connected!")
-            sdb.signin({"user": SURREAL_USER, "pass": SURREAL_PASS})
+            sdb.signin({"username": SURREAL_USER, "password": SURREAL_PASS})
             sdb.use(NS_NAME, DB_NAME)
             
             # Run migration inside the connection
