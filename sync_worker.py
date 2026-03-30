@@ -1,41 +1,100 @@
-import os
-import time
-import json
-import sqlite3
 import io
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from playwright.sync_api import sync_playwright
+from surrealdb import Surreal
 
 # --- CONFIGURATION ---
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
 RK_USER = os.getenv("RUNKEEPER_EMAIL")
 RK_PASS = os.getenv("RUNKEEPER_PASS")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "600")) # 10 mins
-DB_PATH = "/data/sync_history.db"
+DB_PATH = "/data/sync_history.db" # FOR MIGRATION ONLY
+SURREAL_URL = os.getenv("SURREAL_URL", "ws://surrealdb:8000/rpc")
+SURREAL_USER = os.getenv("SURREAL_USER", "rk_admin")
+SURREAL_PASS = os.getenv("SURREAL_PASS", "rk_pass_123")
+DB_NAME = "rk_sync"
+NS_NAME = "jinglebinkie"
 
-# --- DATABASE SETUP (To prevent duplicate uploads) ---
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("CREATE TABLE IF NOT EXISTS uploads (file_id TEXT PRIMARY KEY)")
-    conn.commit()
-    return conn
+# --- DATABASE LOGIC (SurrealDB + SQLite Migration) ---
+def connect_surreal():
+    db = Surreal(SURREAL_URL)
+    db.connect()
+    db.signin({"user": SURREAL_USER, "pass": SURREAL_PASS})
+    db.use(NS_NAME, DB_NAME)
+    return db
 
-def is_uploaded(conn, file_id):
-    cur = conn.cursor()
-    cur.execute("SELECT 1 FROM uploads WHERE file_id = ?", (file_id,))
-    return cur.fetchone() is not None
+def migrate_old_db(sdb):
+    if os.path.exists(DB_PATH):
+        import sqlite3
+        print("📁 SQLite found. Starting migration to SurrealDB...")
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT file_id FROM uploads")
+            rows = cur.fetchall()
+            for row in rows:
+                file_id = row[0]
+                # Check if it exists in Surreal
+                res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
+                if not res or not res[0]["result"]:
+                    sdb.create("uploads", {"file_id": file_id, "migrated": True, "ts": time.time()})
+                    print(f"📦 Migrated {file_id}")
+            print(f"✅ Migration complete. {len(rows)} records processed.")
+        except Exception as e:
+            print(f"⚠️ Migration warning: {e}")
+        finally:
+            conn.close()
 
-def mark_as_uploaded(conn, file_id):
-    conn.execute("INSERT INTO uploads (file_id) VALUES (?)", (file_id,))
-    conn.commit()
+def is_uploaded(sdb, file_id):
+    res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
+    return bool(res and res[0]["result"])
+
+def mark_as_uploaded(sdb, file_id, filename):
+    sdb.create("uploads", {
+        "file_id": file_id,
+        "filename": filename,
+        "ts": time.time(),
+        "status": "success"
+    })
 
 # --- GOOGLE DRIVE LOGIC ---
 def get_drive_service():
-    # Mount your token.json into the container via Secret/ConfigMap
     creds = Credentials.from_authorized_user_file('/app/secrets/token.json')
     return build('drive', 'v3', credentials=creds)
+
+def get_or_create_archive_folder(service):
+    query = f"name = 'archived-and-uploaded' and mimeType = 'application/vnd.google-apps.folder' and '{DRIVE_FOLDER_ID}' in parents and trashed = false"
+    results = service.files().list(q=query).execute()
+    files = results.get('files', [])
+    if files:
+        return files[0]['id']
+    else:
+        print("📁 Creating archive folder in Google Drive...")
+        folder_metadata = {
+            'name': 'archived-and-uploaded',
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [DRIVE_FOLDER_ID]
+        }
+        folder = service.files().create(body=folder_metadata, fields='id').execute()
+        return folder.get('id')
+
+def archive_file_in_drive(service, file_id, archive_folder_id):
+    try:
+        # Retrieve the current parents to remove them
+        file = service.files().get(fileId=file_id, fields='parents').execute()
+        previous_parents = ",".join(file.get('parents'))
+        # Move the file
+        service.files().update(
+            fileId=file_id,
+            addParents=archive_folder_id,
+            removeParents=previous_parents,
+            fields='id, parents'
+        ).execute()
+        print(f"📦 File moved to archive folder.")
+    except Exception as e:
+        print(f"⚠️ Error archiving file: {e}")
 
 # --- RUNKEEPER UPLOAD LOGIC ---
 def upload_to_runkeeper(file_path):
@@ -154,11 +213,14 @@ def upload_to_runkeeper(file_path):
 
 # --- MAIN LOOP ---
 def main():
-    conn = init_db()
+    sdb = connect_surreal()
+    migrate_old_db(sdb)
     drive = get_drive_service()
     
     while True:
         try:
+            archive_folder_id = get_or_create_archive_folder(drive)
+            
             print("🔍 Checking Google Drive for new GPX files...")
             query = f"'{DRIVE_FOLDER_ID}' in parents and name contains '.gpx' and trashed = false"
             results = drive.files().list(q=query, fields="files(id, name)").execute()
@@ -168,7 +230,7 @@ def main():
                 f_id = f['id']
                 f_name = f['name']
 
-                if not is_uploaded(conn, f_id):
+                if not is_uploaded(sdb, f_id):
                     print(f"✨ New file detected: {f_name}")
                     
                     # Download temporarily
@@ -183,15 +245,22 @@ def main():
                     # Execute Browser Upload
                     try:
                         upload_to_runkeeper(local_path)
-                        mark_as_uploaded(conn, f_id)
+                        # Mark in SurrealDB
+                        mark_as_uploaded(sdb, f_id, f_name)
+                        # Move to archive folder in Google Drive
+                        archive_file_in_drive(drive, f_id, archive_folder_id)
+                    except Exception as e:
+                        print(f"❌ Worker Error: {e}")
                     finally:
                         if os.path.exists(local_path):
                             os.remove(local_path)
 
-        except Exception as e:
-            print(f"❌ Worker Error: {e}")
+            print(f"💤 Sleeping for {POLL_INTERVAL}s...")
+            time.sleep(POLL_INTERVAL)
 
-        time.sleep(POLL_INTERVAL)
+        except Exception as e:
+            print(f"❌ Main Loop Error: {e}")
+            time.sleep(30)
 
 if __name__ == "__main__":
     main()

@@ -6,7 +6,8 @@ RUN pip install --no-cache-dir \
     google-api-python-client \
     google-auth-httplib2 \
     google-auth-oauthlib \
-    playwright
+    playwright \
+    surrealdb
 
 COPY sync_worker.py .
 
