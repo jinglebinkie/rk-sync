@@ -21,13 +21,6 @@ DB_NAME = "rk_sync"
 NS_NAME = "jinglebinkie"
 
 # --- DATABASE LOGIC (SurrealDB + SQLite Migration) ---
-def connect_surreal():
-    db = Surreal(SURREAL_URL)
-    # The new SDK handles connection automatically or doesn't use .connect()
-    db.signin({"user": SURREAL_USER, "pass": SURREAL_PASS})
-    db.use(NS_NAME, DB_NAME)
-    return db
-
 def migrate_old_db(sdb):
     if os.path.exists(DB_PATH):
         import sqlite3
@@ -216,54 +209,65 @@ def upload_to_runkeeper(file_path):
 
 # --- MAIN LOOP ---
 def main():
-    sdb = connect_surreal()
-    migrate_old_db(sdb)
     drive = get_drive_service()
     
-    while True:
-        try:
-            archive_folder_id = get_or_create_archive_folder(drive)
+    # Using context manager for SurrealDB connection (most robust pattern)
+    try:
+        with Surreal(SURREAL_URL) as sdb:
+            print("🚀 SurrealDB Connected!")
+            sdb.signin({"user": SURREAL_USER, "pass": SURREAL_PASS})
+            sdb.use(NS_NAME, DB_NAME)
             
-            print("🔍 Checking Google Drive for new GPX files...")
-            query = f"'{DRIVE_FOLDER_ID}' in parents and name contains '.gpx' and trashed = false"
-            results = drive.files().list(q=query, fields="files(id, name)").execute()
-            files = results.get('files', [])
-
-            for f in files:
-                f_id = f['id']
-                f_name = f['name']
-
-                if not is_uploaded(sdb, f_id):
-                    print(f"✨ New file detected: {f_name}")
+            # Run migration inside the connection
+            migrate_old_db(sdb)
+            
+            while True:
+                try:
+                    archive_folder_id = get_or_create_archive_folder(drive)
                     
-                    # Download temporarily
-                    request = drive.files().get_media(fileId=f_id)
-                    local_path = f"/tmp/{f_name}"
-                    with open(local_path, "wb") as fh:
-                        downloader = MediaIoBaseDownload(fh, request)
-                        done = False
-                        while not done:
-                            _, done = downloader.next_chunk()
+                    print("🔍 Checking Google Drive for new GPX files...")
+                    query = f"'{DRIVE_FOLDER_ID}' in parents and name contains '.gpx' and trashed = false"
+                    results = drive.files().list(q=query, fields="files(id, name)").execute()
+                    files = results.get('files', [])
 
-                    # Execute Browser Upload
-                    try:
-                        upload_to_runkeeper(local_path)
-                        # Mark in SurrealDB
-                        mark_as_uploaded(sdb, f_id, f_name)
-                        # Move to archive folder in Google Drive
-                        archive_file_in_drive(drive, f_id, archive_folder_id)
-                    except Exception as e:
-                        print(f"❌ Worker Error: {e}")
-                    finally:
-                        if os.path.exists(local_path):
-                            os.remove(local_path)
+                    for f in files:
+                        f_id = f['id']
+                        f_name = f['name']
 
-            print(f"💤 Sleeping for {POLL_INTERVAL}s...")
-            time.sleep(POLL_INTERVAL)
+                        if not is_uploaded(sdb, f_id):
+                            print(f"✨ New file detected: {f_name}")
+                            
+                            # Download temporarily
+                            request = drive.files().get_media(fileId=f_id)
+                            local_path = f"/tmp/{f_name}"
+                            with open(local_path, "wb") as fh:
+                                downloader = MediaIoBaseDownload(fh, request)
+                                done = False
+                                while not done:
+                                    _, done = downloader.next_chunk()
 
-        except Exception as e:
-            print(f"❌ Main Loop Error: {e}")
-            time.sleep(30)
+                            # Execute Browser Upload
+                            try:
+                                upload_to_runkeeper(local_path)
+                                # Mark in SurrealDB
+                                mark_as_uploaded(sdb, f_id, f_name)
+                                # Move to archive folder in Google Drive
+                                archive_file_in_drive(drive, f_id, archive_folder_id)
+                            except Exception as e:
+                                print(f"❌ Worker Error: {e}")
+                            finally:
+                                if os.path.exists(local_path):
+                                    os.remove(local_path)
+
+                    print(f"💤 Sleeping for {POLL_INTERVAL}s...")
+                    time.sleep(POLL_INTERVAL)
+
+                except Exception as e:
+                    print(f"❌ Main Loop Error: {e}")
+                    time.sleep(30)
+    except Exception as e:
+        print(f"❌ Global SurrealDB Error: {e}")
+        time.sleep(10)
 
 if __name__ == "__main__":
     main()
