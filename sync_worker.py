@@ -111,8 +111,47 @@ def archive_file_in_drive(service, file_id, archive_folder_id):
     except Exception as e:
         print(f"⚠️ Error archiving file: {e}")
 
+def archive_companions_in_drive(service, gpx_name, archive_folder_id):
+    """Find and archive companion files (csv, kml, tcx, fit) for the same activity."""
+    # Strip extension to get the stem e.g. 'WALKING-01.04.2026 16.20'
+    stem = os.path.splitext(gpx_name)[0]
+    
+    # Search for sibling files with the same stem (any extension)
+    query = f"'{DRIVE_FOLDER_ID}' in parents and name contains '{stem}' and trashed = false"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    companions = results.get('files', [])
+    
+    count = 0
+    for companion in companions:
+        if companion['name'] == gpx_name:
+            continue  # Skip the GPX itself (already archived)
+        archive_file_in_drive(service, companion['id'], archive_folder_id)
+        print(f"🗂️  Archived companion: {companion['name']}")
+        count += 1
+    
+    if count > 0:
+        print(f"✅ Archived {count} companion file(s) for {stem}")
+
+def get_activity_type(filename):
+    """Detect Runkeeper activity type from Samsung Health-Sync filename prefix."""
+    upper = filename.upper()
+    if upper.startswith('WALKING') or upper.startswith('WALK'):
+        return 'Walking'
+    elif upper.startswith('CYCLING') or upper.startswith('CYCLE') or upper.startswith('BIKING'):
+        return 'Cycling'
+    elif upper.startswith('SWIMMING') or upper.startswith('SWIM'):
+        return 'Swimming'
+    elif upper.startswith('HIKING') or upper.startswith('HIKE'):
+        return 'Hiking'
+    elif upper.startswith('ELLIPTICAL'):
+        return 'Elliptical'
+    elif upper.startswith('YOGA'):
+        return 'Yoga'
+    else:
+        return 'Running'  # Default
+
 # --- RUNKEEPER UPLOAD LOGIC ---
-def upload_to_runkeeper(file_path):
+def upload_to_runkeeper(file_path, activity_type='Running'):
     with sync_playwright() as p:
         # Launch browser (headless by default)
         # Firefox bypasses the ASICS WAF much better than Chromium
@@ -217,15 +256,42 @@ def upload_to_runkeeper(file_path):
         
         # Wait for "Next" or "Done" button. After selection, Runkeeper usually processes and then shows a "Next" button.
         try:
-            # New Runkeeper UI often has a "Next" button after selection
             # We use a combined selector for whatever button comes up next
             page.wait_for_selector('button:has-text("Next"), button:has-text("Done"), button:has-text("Save")', timeout=30000)
             
-            # Click "Next" if it's there
+            # Click "Next" if it's there (leads to activity details page)
             if page.locator('button:has-text("Next")').is_visible():
                 page.click('button:has-text("Next")')
                 print("⏭️ Clicked Next.")
-                page.wait_for_timeout(2000) # Wait for final screen
+                page.wait_for_timeout(2000) # Wait for details screen
+
+            # --- SET ACTIVITY TYPE ---
+            # Map our type to Runkeeper's dropdown option text
+            rk_type_map = {
+                'Running':    'Running',
+                'Walking':    'Walking',
+                'Cycling':    'Cycling',
+                'Swimming':   'Pool Swimming',
+                'Hiking':     'Hiking',
+                'Elliptical': 'Elliptical',
+                'Yoga':       'Yoga',
+            }
+            rk_type = rk_type_map.get(activity_type, 'Running')
+            print(f"🏃 Setting activity type to: {rk_type}")
+            try:
+                # Runkeeper uses a <select> or a button group for activity type
+                type_select = page.locator('select[name="activityType"], select[id*="type"], select[id*="Type"]').first
+                if type_select.is_visible(timeout=3000):
+                    type_select.select_option(label=rk_type)
+                    print(f"✅ Activity type set via select.")
+                else:
+                    # Some versions use a text-based option list, try to click the matching option
+                    type_btn = page.locator(f'[data-activity-type="{rk_type}"], li:has-text("{rk_type}"), button:has-text("{rk_type}")')
+                    if type_btn.is_visible(timeout=2000):
+                        type_btn.first.click()
+                        print(f"✅ Activity type set via click.")
+            except Exception as e:
+                print(f"⚠️ Could not set activity type ({e}), leaving default.")
 
             # Click "Done" or "Save"
             final_btn = page.locator('button:has-text("Done"), button:has-text("Save")').first
@@ -280,11 +346,15 @@ def main():
 
                             # Execute Browser Upload
                             try:
-                                upload_to_runkeeper(local_path)
+                                activity_type = get_activity_type(f_name)
+                                print(f"🏃 Detected activity type: {activity_type} (from {f_name})")
+                                upload_to_runkeeper(local_path, activity_type)
                                 # Mark in SurrealDB
                                 mark_as_uploaded(sdb, f_id, f_name)
-                                # Move to archive folder in Google Drive
+                                # Move GPX to archive folder in Google Drive
                                 archive_file_in_drive(drive, f_id, archive_folder_id)
+                                # Also archive companion files (csv, kml, tcx, fit)
+                                archive_companions_in_drive(drive, f_name, archive_folder_id)
                             except Exception as e:
                                 print(f"❌ Worker Error: {e}")
                             finally:
