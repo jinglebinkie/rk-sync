@@ -42,15 +42,16 @@ def mark_as_uploaded(sdb, file_id, filename, status="success"):
     })
 
 def is_activity_empty(file_path):
-    """Check if the GPX file has actual GPS track points."""
+    """Check if the GPX file has actual GPS track points (Stub Buster)."""
     try:
         size_kb = os.path.getsize(file_path) / 1024
-        # Even if the file is up to 10 KB, it might just be the header/metadata
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-            # Look for the track point tag
-            if '<trkpt' not in content:
-                print(f"⏭️ Skipping empty activity ({size_kb:.1f} KB, 0 points detected).")
+            # A real activity has many track points. Stubs usually have 0-2.
+            # We set a threshold of 10 points to be safe.
+            point_count = content.count('<trkpt')
+            if point_count < 10:
+                print(f"⏭️ Skipping empty/stub activity ({size_kb:.1f} KB, {point_count} points detected).")
                 return True
         return False
     except Exception as e:
@@ -262,15 +263,15 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
             print("🔗 Selected newest activity.")
             page.wait_for_load_state("networkidle")
             
-            # 3. Open Edit Menu (the chevron dropdown from Screenshot 2)
-            # The chevron is usually a button or anchor with a class like .icon-chevron-down
-            # We also look for the #activity-menu-toggle which is common in their UI
-            chevron = page.locator('.activity-menu-chevron, #activity-menu-toggle, .icon-chevron-down, a.dropdown-toggle').first
+            # 3. Open Edit Menu (Iron-clad chevron)
+            # Confirmed: button.ctaButton opens the action menu
+            chevron = page.locator('button.ctaButton, #activity-menu-toggle, .icon-chevron-down').first
             chevron.click()
             print("📂 Opened edit menu.")
             
-            # Click "Edit Activity" from the dropdown
-            page.locator('text="Edit Activity", a:has-text("Edit Activity")').first.click()
+            # Click "Edit Activity" from the dropdown (Confirmed: a[href*="/edit/activity"])
+            edit_link = page.locator('a[href*="/edit/activity"]').first
+            edit_link.click()
             print("✏️ Entered Edit mode.")
             page.wait_for_load_state("networkidle")
             
