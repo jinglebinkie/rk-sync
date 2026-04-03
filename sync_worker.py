@@ -251,58 +251,49 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
             print(f"⚠️ 'Done' button not found or timed out ({e}). Proceeding to fix flow anyway...")
 
         # --- POST-UPLOAD FIX ---
-        print("⏭️ Navigating to Activity Feed to fix activity type...")
-        try:
-            # 1. Navigate to activities list
-            page.goto("https://runkeeper.com/me/activities", wait_until="networkidle")
-            
-            # 2. Click the top activity (the one we just uploaded)
-            # We look for the first link that looks like an activity detail link
-            page.wait_for_selector('a[href*="/activity/"]', timeout=20000)
-            page.locator('a[href*="/activity/"]').first.click()
-            print("🔗 Selected newest activity.")
-            page.wait_for_load_state("networkidle")
-            
-            # 3. Open Edit Menu (Iron-clad chevron)
-            # Confirmed: button.ctaButton opens the action menu
-            chevron = page.locator('button.ctaButton, #activity-menu-toggle, .icon-chevron-down').first
-            chevron.click()
-            print("📂 Opened edit menu.")
-            
-            # Click "Edit Activity" from the dropdown (Confirmed: a[href*="/edit/activity"])
-            edit_link = page.locator('a[href*="/edit/activity"]').first
-            edit_link.click()
-            print("✏️ Entered Edit mode.")
-            page.wait_for_load_state("networkidle")
-            
-            # 4. Select Type using the IDs provided by the user (#walking, #cycling, etc.)
-            type_id = f"#{activity_type.lower()}"
-            print(f"🏃 Setting activity type to '{activity_type}' (ID: {type_id})...")
-            
-            # Wait for the activity icons to load
-            page.wait_for_selector('.activityTypeItem', timeout=10000)
-            
-            target_type = page.locator(type_id).first
-            if target_type.is_visible():
-                target_type.click()
-                print(f"✅ Selected activity icon: {type_id}")
-            else:
-                # Fallback to finding by text if ID naming differs
-                print(f"⚠️ ID {type_id} not visible, trying text fallback...")
-                page.locator(f'.activityTypeItem:has-text("{activity_type}")').first.click()
-                print(f"✅ Selected activity icon via text fallback.")
+        if activity_type == 'Running':
+            print("🏃 Activity is already 'Running' (default). Skipping post-upload fix.")
+        else:
+            print(f"⏭️ Navigating to Activity Feed to fix activity type to {activity_type}...")
+            try:
+                # 1. Navigate to activities list
+                page.goto("https://runkeeper.com/me/activities", wait_until="networkidle")
+                
+                # 2. Click the top activity (the one we just uploaded)
+                page.wait_for_selector('a[href*="/activity/"]', timeout=20000)
+                page.locator('a[href*="/activity/"]').first.click()
+                print("🔗 Selected newest activity.")
+                page.wait_for_load_state("networkidle")
+                
+                # 3. Open Edit Menu (Iron-clad chevron)
+                chevron = page.locator('button.ctaButton, #activity-menu-toggle, .icon-chevron-down').first
+                chevron.click()
+                print("📂 Opened edit menu.")
+                
+                # Click "Edit Activity" from the dropdown
+                edit_link = page.locator('a[href*="/edit/activity"]').first
+                edit_link.click()
+                print("✏️ Entered Edit mode.")
+                page.wait_for_load_state("networkidle")
+                
+                # 4. Select Type
+                type_id = f"#{activity_type.lower()}"
+                print(f"🏃 Setting activity type to '{activity_type}' (ID: {type_id})...")
+                page.wait_for_selector('.activityTypeItem', timeout=10000)
+                target_type = page.locator(type_id).first
+                if target_type.is_visible():
+                    target_type.click()
+                    print(f"✅ Selected activity icon: {type_id}")
+                else:
+                    page.locator(f'.activityTypeItem:has-text("{activity_type}")').first.click()
 
-            # 5. Save (the green Save button from Screenshot 3)
-            save_btn = page.locator('button:has-text("Save"), .btn-save, .save-button, #saveActivity').first
-            save_btn.click()
-            print(f"✅ Activity corrected to {activity_type} and saved.")
-            print(f"✅ Upload & Fix successful.")
-            
-        except Exception as e:
-            print(f"❌ Post-upload fix failed: {e}")
-            # We don't raise here because the upload itself was likely successful, 
-            # we just failed to fix the label.
-            
+                # 5. Save
+                save_btn = page.locator('button:has-text("Save"), .btn-save, .save-button, #saveActivity').first
+                save_btn.click()
+                print(f"✅ Activity corrected to {activity_type} and saved.")
+            except Exception as e:
+                print(f"❌ Post-upload fix failed: {e}")
+                
         browser.close()
 
 # --- MAIN LOOP ---
