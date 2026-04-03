@@ -1,7 +1,6 @@
 import os
 import time
 import json
-import io
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -13,45 +12,13 @@ DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
 RK_USER = os.getenv("RUNKEEPER_EMAIL")
 RK_PASS = os.getenv("RUNKEEPER_PASS")
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "600")) # 10 mins
-DB_PATH = "/data/sync_history.db" # FOR MIGRATION ONLY
 SURREAL_URL = os.getenv("SURREAL_URL", "ws://surrealdb:8000/rpc")
 SURREAL_USER = os.getenv("SURREAL_USER", "rk_admin")
 SURREAL_PASS = os.getenv("SURREAL_PASS", "rk_pass_123")
 DB_NAME = "rk_sync"
 NS_NAME = "jinglebinkie"
 
-# --- DATABASE LOGIC (SurrealDB + SQLite Migration) ---
-def migrate_old_db(sdb):
-    if os.path.exists(DB_PATH):
-        import sqlite3
-        print("📁 SQLite found. Starting migration to SurrealDB...")
-        conn = sqlite3.connect(DB_PATH)
-        cur = conn.cursor()
-        try:
-            cur.execute("SELECT file_id FROM uploads")
-            rows = cur.fetchall()
-            for row in rows:
-                file_id = row[0]
-                # Check if it exists in Surreal defensively
-                try:
-                    res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
-                    exists = False
-                    if isinstance(res, list) and len(res) > 0 and isinstance(res[0], dict):
-                        exists = bool(res[0].get("result"))
-                    elif isinstance(res, list):
-                        exists = len(res) > 0
-                    
-                    if not exists:
-                        sdb.create("uploads", {"file_id": file_id, "migrated": True, "ts": time.time()})
-                        print(f"📦 Migrated {file_id}")
-                except Exception as e:
-                    print(f"⚠️ Error checking record {file_id}: {e}")
-            print(f"✅ Migration complete. {len(rows)} records processed.")
-        except Exception as e:
-            print(f"⚠️ Migration warning: {e}")
-        finally:
-            conn.close()
-
+# --- DATABASE LOGIC (SurrealDB) ---
 def is_uploaded(sdb, file_id):
     try:
         res = sdb.query("SELECT * FROM uploads WHERE file_id = $fid", {"fid": file_id})
@@ -66,13 +33,29 @@ def is_uploaded(sdb, file_id):
         print(f"⚠️ is_uploaded check failed: {e}")
         return False
 
-def mark_as_uploaded(sdb, file_id, filename):
+def mark_as_uploaded(sdb, file_id, filename, status="success"):
     sdb.create("uploads", {
         "file_id": file_id,
         "filename": filename,
         "ts": time.time(),
-        "status": "success"
+        "status": status
     })
+
+def is_activity_empty(file_path):
+    """Check if the GPX file has actual GPS track points."""
+    try:
+        size_kb = os.path.getsize(file_path) / 1024
+        # Even if the file is up to 10 KB, it might just be the header/metadata
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            # Look for the track point tag
+            if '<trkpt' not in content:
+                print(f"⏭️ Skipping empty activity ({size_kb:.1f} KB, 0 points detected).")
+                return True
+        return False
+    except Exception as e:
+        print(f"⚠️ Error inspecting file: {e}")
+        return False
 
 # --- GOOGLE DRIVE LOGIC ---
 def get_drive_service():
@@ -332,9 +315,6 @@ def main():
             sdb.signin({"username": SURREAL_USER, "password": SURREAL_PASS})
             sdb.use(NS_NAME, DB_NAME)
             
-            # Run migration inside the connection
-            migrate_old_db(sdb)
-            
             while True:
                 try:
                     archive_folder_id = get_or_create_archive_folder(drive)
@@ -360,17 +340,25 @@ def main():
                                 while not done:
                                     _, done = downloader.next_chunk()
 
-                            # Execute Browser Upload
+                            # Execute Empty Check & Browser Upload
                             try:
-                                activity_type = get_activity_type(f_name)
-                                print(f"🏃 Detected activity type: {activity_type} (from {f_name})")
-                                upload_to_runkeeper(local_path, activity_type)
-                                # Mark in SurrealDB
-                                mark_as_uploaded(sdb, f_id, f_name)
-                                # Move GPX to archive folder in Google Drive
-                                archive_file_in_drive(drive, f_id, archive_folder_id)
-                                # Also archive companion files (csv, kml, tcx, fit)
-                                archive_companions_in_drive(drive, f_name, archive_folder_id)
+                                if is_activity_empty(local_path):
+                                    # Mark as skipped in SurrealDB
+                                    mark_as_uploaded(sdb, f_id, f_name, status="skipped_empty")
+                                    # Archive anyway to get it out of the inbox
+                                    archive_file_in_drive(drive, f_id, archive_folder_id)
+                                    # Also archive companions (if any)
+                                    archive_companions_in_drive(drive, f_name, archive_folder_id)
+                                else:
+                                    activity_type = get_activity_type(f_name)
+                                    print(f"🏃 Detected activity type: {activity_type} (from {f_name})")
+                                    upload_to_runkeeper(local_path, activity_type)
+                                    # Mark in SurrealDB
+                                    mark_as_uploaded(sdb, f_id, f_name)
+                                    # Move GPX to archive folder in Google Drive
+                                    archive_file_in_drive(drive, f_id, archive_folder_id)
+                                    # Also archive companion files (csv, kml, tcx, fit)
+                                    archive_companions_in_drive(drive, f_name, archive_folder_id)
                             except Exception as e:
                                 print(f"❌ Worker Error: {e}")
                             finally:
