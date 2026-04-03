@@ -17,4 +17,5 @@ auth:
 
 config:
   driveFolderId: ""
-  pollInterval: "600" # 10 mins in seconds
+  pollInterval: "300" # 10 mins in seconds
+  runkeeperUsername: "MarcRoelofs

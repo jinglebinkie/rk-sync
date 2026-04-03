@@ -25,6 +25,8 @@ spec:
               value: {{ .Values.config.driveFolderId | quote }}
             - name: POLL_INTERVAL
               value: {{ .Values.config.pollInterval | quote }}
+            - name: RUNKEEPER_USERNAME
+              value: {{ .Values.config.runkeeperUsername | quote }}
             - name: RUNKEEPER_EMAIL
               valueFrom:
                 secretKeyRef:

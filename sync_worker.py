@@ -11,7 +11,7 @@ from surrealdb import Surreal
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
 RK_USER = os.getenv("RUNKEEPER_EMAIL")
 RK_PASS = os.getenv("RUNKEEPER_PASS")
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "600")) # 10 mins
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "300")) # 10 mins
 SURREAL_URL = os.getenv("SURREAL_URL", "ws://surrealdb:8000/rpc")
 SURREAL_USER = os.getenv("SURREAL_USER", "rk_admin")
 SURREAL_PASS = os.getenv("SURREAL_PASS", "rk_pass_123")
@@ -256,26 +256,31 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
         else:
             print(f"⏭️ Navigating to Activity Feed to fix activity type to {activity_type}...")
             try:
-                # 1. Navigate to activities list
-                # Runkeeper automatically redirects to the latest activity detail view
-                page.goto("https://runkeeper.com/me/activities", wait_until="networkidle")
+                # 1. Navigate to Profile first (avoiding the buggy /activities URL)
+                profile_url = f"https://runkeeper.com/profile"
+                username = os.getenv("RUNKEEPER_USERNAME")
+                if username:
+                    profile_url = f"https://runkeeper.com/profile?username={username}"
                 
-                # 2. Wait for the Chevron (ctaButton) to appear (Auto-open behavior)
-                # Fallback to manual click if chevron isn't found immediately
-                chevron_selector = 'button.ctaButton, #activity-menu-toggle, .icon-chevron-down'
-                try:
-                    chevron = page.locator(chevron_selector).first
-                    chevron.wait_for(state="visible", timeout=10000)
-                    print("✨ Activity auto-opened. Found chevron.")
-                except Exception:
-                    print("⚠️ Activity didn't auto-open. Falling back to manual selection...")
-                    page.wait_for_selector('a[href*="/activity/"]', timeout=10000)
-                    page.locator('a[href*="/activity/"]').first.click()
-                    page.wait_for_load_state("networkidle")
-                    chevron = page.locator(chevron_selector).first
-                    chevron.wait_for(state="visible", timeout=10000)
+                print(f"👤 Navigating to Profile: {profile_url}")
+                page.goto(profile_url, wait_until="networkidle")
+                
+                # 2. Click the 'ACTIVITIES' tab
+                print("📋 Clicking ACTIVITIES tab...")
+                # The tab is usually an anchor with text 'ACTIVITIES' or an icon
+                activities_tab = page.locator('a:has-text("ACTIVITIES"), .profile-menu-item:has-text("ACTIVITIES"), #activities').first
+                activities_tab.wait_for(state="visible", timeout=15000)
+                activities_tab.click()
+                page.wait_for_load_state("networkidle")
+                page.wait_for_timeout(3000) # Give it a moment to auto-open the latest
 
-                # 3. Open Edit Menu
+                # 3. Look for the Chevron (ctaButton)
+                chevron_selector = 'button.ctaButton, #activity-menu-toggle, .icon-chevron-down'
+                chevron = page.locator(chevron_selector).first
+                chevron.wait_for(state="visible", timeout=15000)
+                print("✨ Activity auto-opened via Profile tab. Found chevron.")
+
+                # 4. Open Edit Menu
                 chevron.click()
                 print("📂 Opened edit menu.")
                 
