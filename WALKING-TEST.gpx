@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Antigravity" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Test Walking</name>
+    <type>9</type>
+    <trkseg>
+      <trkpt lat="52.370216" lon="4.895168">
+        <ele>2.0</ele>
+        <time>2026-04-01T16:20:00Z</time>
+      </trkpt>
+      <trkpt lat="52.370217" lon="4.895169">
+        <ele>2.0</ele>
+        <time>2026-04-01T16:21:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

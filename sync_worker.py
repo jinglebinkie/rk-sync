@@ -254,54 +254,70 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
             print(f"⚠️ File chooser failed ({e}), trying direct input...")
             page.set_input_files('input[type="file"]', file_path)
         
-        # Wait for "Next" or "Done" button. After selection, Runkeeper usually processes and then shows a "Next" button.
+        # Wait for "Next" or "Done" button. After selection, Runkeeper usually processes and then shows a "Done" button (as seen in Screenshot 1).
         try:
-            # We use a combined selector for whatever button comes up next
-            page.wait_for_selector('button:has-text("Next"), button:has-text("Done"), button:has-text("Save")', timeout=30000)
-            
-            # Click "Next" if it's there (leads to activity details page)
-            if page.locator('button:has-text("Next")').is_visible():
-                page.click('button:has-text("Next")')
-                print("⏭️ Clicked Next.")
-                page.wait_for_timeout(2000) # Wait for details screen
-
-            # --- SET ACTIVITY TYPE ---
-            # Map our type to Runkeeper's dropdown option text
-            rk_type_map = {
-                'Running':    'Running',
-                'Walking':    'Walking',
-                'Cycling':    'Cycling',
-                'Swimming':   'Pool Swimming',
-                'Hiking':     'Hiking',
-                'Elliptical': 'Elliptical',
-                'Yoga':       'Yoga',
-            }
-            rk_type = rk_type_map.get(activity_type, 'Running')
-            print(f"🏃 Setting activity type to: {rk_type}")
-            try:
-                # Runkeeper uses a <select> or a button group for activity type
-                type_select = page.locator('select[name="activityType"], select[id*="type"], select[id*="Type"]').first
-                if type_select.is_visible(timeout=3000):
-                    type_select.select_option(label=rk_type)
-                    print(f"✅ Activity type set via select.")
-                else:
-                    # Some versions use a text-based option list, try to click the matching option
-                    type_btn = page.locator(f'[data-activity-type="{rk_type}"], li:has-text("{rk_type}"), button:has-text("{rk_type}")')
-                    if type_btn.is_visible(timeout=2000):
-                        type_btn.first.click()
-                        print(f"✅ Activity type set via click.")
-            except Exception as e:
-                print(f"⚠️ Could not set activity type ({e}), leaving default.")
-
-            # Click "Done" or "Save"
-            final_btn = page.locator('button:has-text("Done"), button:has-text("Save")').first
-            if final_btn.is_visible():
-                final_btn.click()
-                print("💾 Clicked Done/Save.")
-            
-            print(f"✅ Upload successful.")
+            print("⏳ Waiting for processing/Done button...")
+            # Runkeeper usually shows a green 'Done' button after successful upload
+            done_btn = page.locator('button:has-text("Done"), .btn-success, #multiFilesDone').first
+            done_btn.wait_for(state="visible", timeout=45000)
+            done_btn.click()
+            print("✅ Clicked Done button. File imported.")
+            page.wait_for_timeout(3000) # Give it a moment to finalize
         except Exception as e:
-            print(f"⚠️ Finalization step failed or wasn't needed: {e}")
+            print(f"⚠️ 'Done' button not found or timed out ({e}). Proceeding to fix flow anyway...")
+
+        # --- POST-UPLOAD FIX ---
+        print("⏭️ Navigating to Activity Feed to fix activity type...")
+        try:
+            # 1. Navigate to activities list
+            page.goto("https://runkeeper.com/me/activities", wait_until="networkidle")
+            
+            # 2. Click the top activity (the one we just uploaded)
+            # We look for the first link that looks like an activity detail link
+            page.wait_for_selector('a[href*="/activity/"]', timeout=20000)
+            page.locator('a[href*="/activity/"]').first.click()
+            print("🔗 Selected newest activity.")
+            page.wait_for_load_state("networkidle")
+            
+            # 3. Open Edit Menu (the chevron dropdown from Screenshot 2)
+            # The chevron is usually a button or anchor with a class like .icon-chevron-down
+            # We also look for the #activity-menu-toggle which is common in their UI
+            chevron = page.locator('.activity-menu-chevron, #activity-menu-toggle, .icon-chevron-down, a.dropdown-toggle').first
+            chevron.click()
+            print("📂 Opened edit menu.")
+            
+            # Click "Edit Activity" from the dropdown
+            page.locator('text="Edit Activity", a:has-text("Edit Activity")').first.click()
+            print("✏️ Entered Edit mode.")
+            page.wait_for_load_state("networkidle")
+            
+            # 4. Select Type using the IDs provided by the user (#walking, #cycling, etc.)
+            type_id = f"#{activity_type.lower()}"
+            print(f"🏃 Setting activity type to '{activity_type}' (ID: {type_id})...")
+            
+            # Wait for the activity icons to load
+            page.wait_for_selector('.activityTypeItem', timeout=10000)
+            
+            target_type = page.locator(type_id).first
+            if target_type.is_visible():
+                target_type.click()
+                print(f"✅ Selected activity icon: {type_id}")
+            else:
+                # Fallback to finding by text if ID naming differs
+                print(f"⚠️ ID {type_id} not visible, trying text fallback...")
+                page.locator(f'.activityTypeItem:has-text("{activity_type}")').first.click()
+                print(f"✅ Selected activity icon via text fallback.")
+
+            # 5. Save (the green Save button from Screenshot 3)
+            save_btn = page.locator('button:has-text("Save"), .btn-save, .save-button, #saveActivity').first
+            save_btn.click()
+            print(f"✅ Activity corrected to {activity_type} and saved.")
+            print(f"✅ Upload & Fix successful.")
+            
+        except Exception as e:
+            print(f"❌ Post-upload fix failed: {e}")
+            # We don't raise here because the upload itself was likely successful, 
+            # we just failed to fix the label.
             
         browser.close()
 
