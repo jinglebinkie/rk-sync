@@ -257,16 +257,25 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
             print(f"⏭️ Navigating to Activity Feed to fix activity type to {activity_type}...")
             try:
                 # 1. Navigate to activities list
+                # Runkeeper automatically redirects to the latest activity detail view
                 page.goto("https://runkeeper.com/me/activities", wait_until="networkidle")
                 
-                # 2. Click the top activity (the one we just uploaded)
-                page.wait_for_selector('a[href*="/activity/"]', timeout=20000)
-                page.locator('a[href*="/activity/"]').first.click()
-                print("🔗 Selected newest activity.")
-                page.wait_for_load_state("networkidle")
-                
-                # 3. Open Edit Menu (Iron-clad chevron)
-                chevron = page.locator('button.ctaButton, #activity-menu-toggle, .icon-chevron-down').first
+                # 2. Wait for the Chevron (ctaButton) to appear (Auto-open behavior)
+                # Fallback to manual click if chevron isn't found immediately
+                chevron_selector = 'button.ctaButton, #activity-menu-toggle, .icon-chevron-down'
+                try:
+                    chevron = page.locator(chevron_selector).first
+                    chevron.wait_for(state="visible", timeout=10000)
+                    print("✨ Activity auto-opened. Found chevron.")
+                except Exception:
+                    print("⚠️ Activity didn't auto-open. Falling back to manual selection...")
+                    page.wait_for_selector('a[href*="/activity/"]', timeout=10000)
+                    page.locator('a[href*="/activity/"]').first.click()
+                    page.wait_for_load_state("networkidle")
+                    chevron = page.locator(chevron_selector).first
+                    chevron.wait_for(state="visible", timeout=10000)
+
+                # 3. Open Edit Menu
                 chevron.click()
                 print("📂 Opened edit menu.")
                 
