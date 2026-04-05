@@ -256,29 +256,22 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
         else:
             print(f"⏭️ Navigating to Activity Feed to fix activity type to {activity_type}...")
             try:
-                # 1. Navigate to Profile first (avoiding the buggy /activities URL)
-                profile_url = f"https://runkeeper.com/profile"
+                # 1. Navigate directly to the activity list using the known URL
                 username = os.getenv("RUNKEEPER_USERNAME")
                 if username:
-                    profile_url = f"https://runkeeper.com/profile?username={username}"
+                    activitylist_url = f"https://runkeeper.com/user/{username}/activitylist"
+                else:
+                    activitylist_url = "https://runkeeper.com/me/activitylist"
                 
-                print(f"👤 Navigating to Profile: {profile_url}")
-                page.goto(profile_url, wait_until="networkidle")
-                
-                # 2. Click the 'ACTIVITIES' tab
-                print("📋 Clicking ACTIVITIES tab...")
-                # The tab is usually an anchor with text 'ACTIVITIES' or an icon
-                activities_tab = page.locator('a:has-text("ACTIVITIES"), .profile-menu-item:has-text("ACTIVITIES"), #activities').first
-                activities_tab.wait_for(state="visible", timeout=15000)
-                activities_tab.click()
-                page.wait_for_load_state("networkidle")
+                print(f"📋 Navigating to activity list: {activitylist_url}")
+                page.goto(activitylist_url, wait_until="networkidle")
                 page.wait_for_timeout(3000) # Give it a moment to auto-open the latest
 
-                # 3. Look for the Chevron (ctaButton)
+                # 2. Look for the Chevron (ctaButton) - auto-opens latest activity
                 chevron_selector = 'button.ctaButton, #activity-menu-toggle, .icon-chevron-down'
                 chevron = page.locator(chevron_selector).first
                 chevron.wait_for(state="visible", timeout=15000)
-                print("✨ Activity auto-opened via Profile tab. Found chevron.")
+                print("✨ Activity auto-opened. Found chevron.")
 
                 # 4. Open Edit Menu
                 chevron.click()
