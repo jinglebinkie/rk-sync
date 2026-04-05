@@ -287,15 +287,31 @@ def upload_to_runkeeper(file_path, activity_type='Running'):
                 type_id = f"#{activity_type.lower()}"
                 print(f"🏃 Setting activity type to '{activity_type}' (ID: {type_id})...")
                 page.wait_for_selector('.activityTypeItem', timeout=10000)
+                
+                # Click the icon specifically
                 target_type = page.locator(type_id).first
                 if target_type.is_visible():
                     target_type.click()
                     print(f"✅ Selected activity icon: {type_id}")
                 else:
                     page.locator(f'.activityTypeItem:has-text("{activity_type}")').first.click()
+                    print(f"✅ Selected activity icon via text fallback.")
 
-                # 5. Save
-                save_btn = page.locator('button:has-text("Save"), .btn-save, .save-button, #saveActivity').first
+                # 5. Optional: Set default distance for Walking (2.8 km for ~28 min)
+                if activity_type.lower() == 'walking':
+                    try:
+                        dist_input = page.locator('#distance').first
+                        dist_input.wait_for(state="visible", timeout=5000)
+                        # Clear and type
+                        dist_input.fill("")
+                        dist_input.type("2.8")
+                        print("📏 Set default distance to 2.8 km.")
+                    except Exception as e:
+                        print(f"⚠️ Could not set distance: {e}")
+
+                # 6. Save (using the reliable .editSaveButton selector)
+                save_btn = page.locator('button.editSaveButton, #saveActivity, .btn-save').first
+                save_btn.scroll_into_view_if_needed()
                 save_btn.click()
                 print(f"✅ Activity corrected to {activity_type} and saved.")
             except Exception as e:
